@@ -1,6 +1,10 @@
 #---------------------------------------------------------------------------------------#
 #########------------------------Define functions-------------------------------#########
 #---------------------------------------------------------------------------------------#
+##Part of the function references：
+#https://github.com/winstonbecker/scCRC_continuum?tab=readme-ov-file
+#https://github.com/GreenleafLab/scScalpChromatin/blob/main/
+
 {
   sample_name <- "all_samples"
   sample_list <- c("Heart_AN49", "Heart_AN50", 
