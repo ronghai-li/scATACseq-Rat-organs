@@ -31,4 +31,35 @@ README.md                   # This file
 .gitignore                  # Ignore unnecessary files
 
 # Requirements
-R Environment
+R Environment：R (≥ 4.3.0)
+ 
+Required R packages:
+	•	ArchR
+	•	patchwork
+	•	ggplot2
+	•	dplyr
+	•	ggrepel
+	•	BiocGenerics
+	•	Seurat
+	•	ggpubr
+	•	cowplot
+	•	tidyr
+	•	mclust
+	•	gtools
+	•	magrittr
+	•	tidyverse
+	•	magick
+	•	circlize
+ 
+Python Environment：Python (≥ 3.10)
+
+Required Python packages:
+	•	numpy
+	•	pandas
+	•	scanpy
+	•	matplotlib
+	•	seaborn
+	•	plotly
+	•	anndata
+
+ 
