@@ -1,3 +1,26 @@
+## load package ----------------------------------------------------------------------------------------------------------
+library(ArchR)
+library(patchwork)
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(BiocGenerics)
+library(Seurat)
+library(ggpubr)
+library(cowplot)
+library(tidyr)
+library(mclust)
+library(gtools)
+library(magrittr)
+library(tidyverse)
+library(chromVARmotifs)
+library(magick)
+library(ComplexHeatmap)
+library(circlize)
+
+set.seed(1)
+addArchRThreads(threads = 16) 
+
 #---------------------------------------------------------------------------------------#
 #########--------------00.Creating a Custom ArchRGenome for Rat-----------------#########
 #---------------------------------------------------------------------------------------#
