@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
-#load package
+#load package ----------------
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -12,7 +9,6 @@ import matplotlib
 import os
 import anndata
 import seaborn as sns
-import time
 import warnings
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -22,11 +18,7 @@ from warnings import simplefilter
 from anndata import AnnData
 from matplotlib.pyplot import rc_context
 
-
-# In[2]:
-
-
-##Basic Configuration
+##Basic Configuration -----------------
 sc.settings.verbosity = 0             # verbosity: errors (0), warnings (1), info (2), hints (3)
 sc.logging.print_header()
 
@@ -35,42 +27,17 @@ sc.settings.set_figure_params(dpi=300, frameon=False)
 sc.set_figure_params(dpi=300)
 sc.set_figure_params(figsize=(4, 4))
 
-
-# In[5]:
-
-
+#load data -----------------
 coord_df = pd.read_csv('./umap.csv', index_col='index', sep=',')
 coord_df.columns=['x','y']
 
 metadata_df = pd.read_csv('./Metadata.csv', index_col='index', sep=',')
 
-
-# In[3]:
-
-
 adata = anndata.read('./obj.h5ad')
-
-
-# In[6]:
-
 
 adata.obs = adata.obs.join(metadata_df)
 
-
-# In[7]:
-
-
 adata.obsm['X_umap'] = coord_df[['x', 'y']].values
-
-
-# In[8]:
-
-
-adata
-
-
-# In[9]:
-
 
 with rc_context({"figure.figsize": (6, 3)}):
     sc.pl.violin(
@@ -82,39 +49,20 @@ with rc_context({"figure.figsize": (6, 3)}):
         save = ".pdf"# adds a boxplot inside violins
     )
 
-
-# In[10]:
-
-
 sc.pl.umap(
     adata, color="Major_celltypes", legend_loc="on data",save=".pdf"
 )
 
-
-# In[21]:
-
-
+#DEG -----------------
 # Find differentially expressed genes in cluster
 sc.tl.rank_genes_groups(adata, 'Celltypes', method='wilcoxon')
-
-
-# In[22]:
-
 
 sc.tl.filter_rank_genes_groups(adata, min_fold_change=1)
 # visualize results
 sc.pl.rank_genes_groups(adata, key='rank_genes_groups_filtered')
 
-
-# In[13]:
-
-
 # visualize results using dotplot
 sc.pl.rank_genes_groups_dotplot(adata, n_genes = 3, key='rank_genes_groups_filtered',save="top10_genes.pdf")
-
-
-# In[74]:
-
 
 # Subset of organs of interest
 selected_Organ = ['Thyroid']
@@ -147,9 +95,7 @@ sc.pl.dotplot(adata_filtered,
               save="Thyroid_marker_genes_ordered.pdf")
 
 
-# In[17]:
-
-
+#-----------Thymus-----------#
 # Subset of organs of interest
 selected_Organ = ['Thymus']
 
@@ -180,10 +126,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Thymus_marker_genes_ordered.pdf")
 
-
-# In[77]:
-
-
+#-----------Heart-----------#
 # Subset of organs of interest
 selected_Organ = ['Heart']
 
@@ -214,10 +157,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Heart_marker_genes_ordered.pdf")
 
-
-# In[83]:
-
-
+#-----------Lung-----------#
 # Subset of organs of interest
 selected_Organ = ['Lung']
 
@@ -252,10 +192,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Lung_marker_genes_ordered.pdf")
 
-
-# In[25]:
-
-
+#-----------Liver-----------#
 # Subset of organs of interest
 selected_Organ = ['Liver']
 
@@ -287,10 +224,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Liver_marker_genes_ordered.pdf")
 
-
-# In[93]:
-
-
+#-----------Spleen-----------#
 # Subset of organs of interest
 selected_Organ = ['Spleen']
 
@@ -323,10 +257,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Spleen_marker_genes_ordered.pdf")
 
-
-# In[29]:
-
-
+#-----------Kidney-----------#
 # Subset of organs of interest
 selected_Organ = ['Kidney']
 
@@ -364,10 +295,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Kidney_marker_genes_ordered.pdf")
 
-
-# In[34]:
-
-
+#-----------Pancreas-----------#
 # Subset of organs of interest
 selected_Organ = ['Pancreas']
 
@@ -395,10 +323,7 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Pancreas_marker_genes_ordered.pdf")
 
-
-# In[104]:
-
-
+#-----------Ovary-----------#
 # Subset of organs of interest
 selected_Organ = ['Ovary']
 
@@ -432,48 +357,21 @@ sc.pl.dotplot(adata_filtered,
               categories_order=celltype_order,
               save="Ovary_marker_genes_ordered.pdf")
 
-
-# In[28]:
-
-
 # compute hierarchical clustering using PCs (several distance metrics and linkage methods are available).
 sc.tl.dendrogram(adata, "Celltypes",linkage_method = "complete",optimal_ordering = True)
 
-
-# In[8]:
-
-
+# plotting ---------------
 sc.set_figure_params(figsize=(18, 2))
 ax = sc.pl.dendrogram(adata, "Celltypes",save=".pdf")
 
-
-# In[44]:
-
-
 ax = sc.pl.correlation_matrix(adata, "Organs",save=".pdf")
-
-
-# In[45]:
-
 
 ax = sc.pl.correlation_matrix(adata, "Major_celltypes",save="Major_celltypes.pdf")
 
-
-# In[7]:
-
-
 ax = sc.pl.correlation_matrix(adata, "Celltypes",save="Celltypes.pdf")
-
-
-# In[10]:
-
 
 # scale and store results in layer
 adata.layers["scaled"] = sc.pp.scale(adata, copy=True).X
-
-
-# In[12]:
-
 
 adata_balanced = adata.copy()
 
@@ -496,10 +394,6 @@ for cell_type in cell_types:
 adata_balanced = adata_balanced[indices]
 adata_balanced
 
-
-# In[43]:
-
-
 # plotting
 sc.pl.rank_genes_groups_heatmap(
     adata_balanced,
@@ -515,28 +409,17 @@ sc.pl.rank_genes_groups_heatmap(
     save=".pdf"
 )
 
-
-# In[ ]:
-
-
+#-----------epithelial cells-----------#
 # Subset data of epithelial cells
 selected_Major_Celltype = ['Epithelial']
 
 # Screening the data for these cell types
 adata_filtered = adata[adata.obs['Major_celltypes'].isin(selected_Major_Celltype)].copy()
 
-
-# In[32]:
-
-
 # Find differentially expressed genes in cluster
 sc.tl.rank_genes_groups(adata_filtered, 'Celltypes', method='wilcoxon')
 
 sc.tl.filter_rank_genes_groups(adata_filtered, min_fold_change=1)
-
-
-# In[34]:
-
 
 # visualize results using dotplot
 sc.pl.rank_genes_groups_dotplot(adata_filtered, n_genes = 2, key='rank_genes_groups_filtered',save="top10_genes.pdf")
