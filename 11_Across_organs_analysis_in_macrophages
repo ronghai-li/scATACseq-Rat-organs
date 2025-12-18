@@ -1,0 +1,396 @@
+#across organs analysis in macrophages ----
+
+sample_name <- "macrophages"
+
+#load all sample  proj
+proj <- loadArchRProject(path = "/Users/lironghai/Desktop/AR/03.remerged_ATAC/proj_AfterQC/")
+
+table(proj$Celltypes)
+table(proj$Major_celltypes)
+table(proj$Organs)
+
+macroCells <- getCellNames(proj)[proj$Celltypes %in% c("Cardiac_Macrophage","Kupffer_cell","Pulmonary_Macrophage","Renal_Macrophage","Splenic_Macrophage","Ovarian_Macrophage")]
+
+proj <- subsetArchRProject(
+  ArchRProj = proj,
+  cells = macroCells,
+  outputDirectory ="proj_macrophages_plus", dropCells = F,force = TRUE
+)
+
+getAvailableMatrices(proj)
+
+#re-call peak in immune cell subtypes
+library(BSgenome.Rnorvegicus.UCSC.rn6)
+
+pathToMacs2 <- "/Users/lironghai/anaconda3/envs/For_sc/bin/macs2"
+
+table(proj$Celltypes)
+table(proj$Major_celltypes)
+table(proj$Organs)
+
+# Create Group Coverage Files that can be used for downstream analysis
+proj <- addGroupCoverages(
+  ArchRProj=proj, 
+  groupBy="Celltypes", 
+  #minCells = 50, # The minimum number of cells required in a given cell group to permit insertion coverage file generation. (default = 40)
+  force=TRUE
+)
+
+# Call Reproducible Peaks w/ Macs2
+proj <- addReproduciblePeakSet(
+  ArchRProj = proj, 
+  groupBy = "Celltypes", 
+  peaksPerCell = 500, # The upper limit of the number of peaks that can be identified per cell-grouping in groupBy. (Default = 500)
+  pathToMacs2 = pathToMacs2,
+  genomeSize = 2.75e9,
+  force = TRUE
+)
+
+# Add Peak Matrix
+proj <- addPeakMatrix(ArchRProj = proj,force = TRUE)
+
+library(chromVARmotifs)
+
+pwm <- readRDS('./JASPAR2024_Mus_musculus_PWMatrixList.rds')
+
+# Add motif information
+proj <- addMotifAnnotations(proj, 
+                            annoName="Motif_JASPAR2024", 
+                            motifPWMs = pwm,
+                            force=TRUE)
+
+# Add background peaks
+proj <- addBgdPeaks(proj, force = TRUE)
+
+# Add deviations matrix
+proj <- addDeviationsMatrix(
+  ArchRProj = proj, 
+  matrixName = "Motif_JASPAR2024_Matrix",
+  peakAnnotation = "Motif_JASPAR2024",
+  force = TRUE
+)
+
+saveArchRProject(proj)
+
+#load data
+proj <- loadArchRProject(path = "/Users/lironghai/Desktop/AR/10.Revised/proj_macrophages_plus/")
+
+# Re-cluster the project with specified parameters
+# Note: Adjust the parameters according to your specific needs
+#Dimensionality Reduction and Clustering
+proj <- addIterativeLSI(
+  ArchRProj = proj,
+  useMatrix = "PeakMatrix",
+  name = "IterativeLSI",
+  iterations = 3,
+  clusterParams = list( #See Seurat::FindClusters
+    resolution = c(0.2,0.3),
+    sampleCells = 10000,
+    n.start = 10
+  ),
+  varFeatures = 25000,
+  dimsToUse = 1:25,
+  # sampleCellsPre = 50000,
+  #  sampleCellsFinal = 50000,
+  force = TRUE
+)
+
+proj <- addHarmony(
+  ArchRProj = proj,
+  reducedDims = "IterativeLSI",
+  name = "Harmony",
+  groupBy = "Sample",
+  force = TRUE
+)
+
+proj <- addClusters(
+  input = proj,
+  reducedDims = "Harmony",
+  method = "Seurat",
+  name = "Clusters",
+  FCmethod = "igraph",           # passed to Seurat::FindClusters(method = "igraph")
+  algorithm  = 4,                # Leiden algorithm in Seurat::FindClusters()
+  resolution = 0.7,
+  dimsToUse = 1:25,
+  force = TRUE
+)
+
+proj <- addUMAP(
+  ArchRProj = proj,
+  reducedDims = "Harmony",
+  name = "UMAP_Harmony",
+  nNeighbors = 40,#default is 40
+  minDist = 0.6,#default is 0.4
+  dimsToUse = 1:25,
+  metric = "cosine",
+  force = TRUE
+)
+
+# Plot UMAP embedding
+pdf(paste0("./UMAP_subtypes_",sample_name,".pdf"), height = 5,width = 5,onefile=F)
+plotEmbedding(ArchRProj =proj, colorBy = "cellColData", name="Celltypes",embedding = "UMAP_Harmony", labelMeans = T,dpi = 300)+
+  theme_cowplot() +
+  xlab("UMAP_1") + ylab("UMAP_2") +labs(color = "")+
+  guides(color = guide_legend(override.aes = list(size = 4)))+
+  ggtitle("")
+dev.off()
+
+pdf(paste0("./UMAP_Clusters_",sample_name,".pdf"), height = 3,width = 3,onefile=F)
+plotEmbedding(ArchRProj =proj, colorBy = "cellColData", name="Clusters",embedding = "UMAP_Harmony", labelMeans = T,size = 0.4,plotAs = 'points',dpi = 300)+
+  theme_cowplot() +
+  xlab("UMAP_1") + ylab("UMAP_2") +labs(color = "")+
+  guides(color = guide_legend(override.aes = list(size = 4)))+
+  ggtitle("")
+dev.off()
+
+pdf(paste0("./UMAP_Sample_",sample_name,".pdf"), height = 5,width = 5,onefile=F)
+plotEmbedding(ArchRProj =proj, colorBy = "cellColData", name="Sample",embedding = "UMAP_Harmony",labelMeans = T,dpi = 300)+
+  theme_cowplot()+
+  xlab("UMAP_1") + ylab("UMAP_2") +labs(color = "")+
+  guides(color = guide_legend(override.aes = list(size = 4)))+
+  ggtitle("")
+dev.off()
+
+pdf(paste0("./UMAP_organs_",sample_name,".pdf"), height = 4,width = 4,onefile=F)
+p <- plotEmbedding(ArchRProj =proj, colorBy = "cellColData", name="Organs",embedding = "UMAP_Harmony",
+                   pal = Organs_list,
+                   size = 0.4, 
+                   sampleCells = 10000,
+                   baseSize = 10,
+                  plotAs = 'points',
+                   labelMeans = F,
+                   dpi = 300)+
+  theme_cowplot() +
+  xlab("UMAP_1") + ylab("UMAP_2") +labs(color = "")+
+  guides(color = guide_legend(override.aes = list(size = 4)))+
+  ggtitle("")
+print(p)
+dev.off()
+
+saveArchRProject(proj)
+
+### UMAP embedding ----
+proj <- addImputeWeights(proj,reducedDims = "Harmony")
+
+# plot int_gene and TFs on the UMAP embedding
+intMotifs <- c("Adgre1","Cd68","Cd14","Cd163","Lyz2", "Marco","Mertk","Csf1r","Itgam","Tyrobp","Lgals3")
+
+intMotifs <- c("Il1b","Nos2","Cd80","IL12B",#M1
+               "Cd163", "Mrc1","Arg1","Ccl17","Ccl22","Il10","Mertk"#M2
+               )
+
+p <- plotEmbedding(ArchRProj = proj,
+                   colorBy =  "GeneScoreMatrix", 
+                   name =intMotifs, 
+                   embedding = "UMAP_Harmony",
+                   imputeWeights = getImputeWeights(proj),
+                   log2Norm = T,
+                   size = 0.1,
+                   plotAs = 'points',
+                   pal=ArchRPalettes$horizonExtra
+)
+
+plotPDF(plotList = p, 
+        name = paste0("GeneScoreMatrix_UMAP_M1_M2_",sample_name,".pdf"),
+        ArchRProj = proj, 
+        addDOC = FALSE, 
+        width = 5, 
+        height = 5
+)
+
+markerMotifs <- getFeatures(proj,useMatrix = "Motif_JASPAR2024_Matrix")
+markerMotifs <- grep("z:", markerMotifs, value = TRUE)
+
+p <- plotEmbedding(
+  ArchRProj = proj, 
+  colorBy = "Motif_JASPAR2024_Matrix", 
+  name = markerMotifs, 
+  embedding = "UMAP_Harmony",
+  #log2Norm =  T,
+  plotAs = 'points',
+  imputeWeights = getImputeWeights(proj) ,
+  pal=ArchRPalettes$solarExtra
+)
+
+old_names <- names(p)
+ids <- sub("^z:", "", old_names)
+
+new_names <- paste0(
+  motif_map$TF[match(ids, motif_map$ID)],
+  " (", ids, ")"
+)
+
+names(p) <- new_names
+
+for (i in seq_along(p)) {
+  p[[i]]$labels$title <- names(p)[i]
+}
+
+plotPDF(plotList = p, name = "motif_UMAP_embedding_all.pdf", width = 5, height = 5, ArchRProj = proj, addDOC = FALSE)
+
+## Fraction plots  ----
+### Stacked bar plot fraction Organs in Cluster ###
+clustBySamp <- fractionXbyY(proj$Clusters, proj$Organs, add_total=F, xname="Clusters", yname="Organs")
+
+pdf(paste0("./Endothelial_celltypes_fraction.pdf"))
+print(stackedBarPlot(clustBySamp, xlab="Clusters",ylab="Organs",cmap=Organs_list, barwidth=0.9))
+dev.off()
+
+#plot heatmap for genscore matrix of proj
+# Generate marker gene heatmap
+markersGS <- getMarkerFeatures(
+  ArchRProj = proj,
+  useMatrix = "GeneScoreMatrix",
+  groupBy = "Clusters",
+  bias = c("TSSEnrichment", "log10(nFrags)"),
+  testMethod = "wilcoxon"
+)
+
+# Extract marker list with specified cutoff and number of genes
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.01 & Log2FC >= 1")
+
+top20_df <- do.call(rbind, lapply(names(markerList), function(clu) {
+  df <- markerList[[clu]]
+  df <- df[order(df$Log2FC, decreasing = TRUE), ]
+  head(df, 20) |>
+    transform(Cluster = clu)
+}))
+
+write.csv(
+  top20_df,
+  file = paste0("Markerlist_", sample_name,".csv"),
+  row.names = FALSE
+)
+
+intgene <- c("Clec4f", "Cpb1", "Agtr1b", "Spsb4", "Slc16a10"
+             ,"Fabp4", "Adora1", "Slc1a7", "Speg", "Cacna2d2"
+             ,"Cd5", "Trpc6", "Kcnk10", "Prkcq", "Cimip1",
+             "Btla", "Ppp1r16b", "Ikzf3", "Adgrl1", "Kiaa0040",
+             "Bhlhe23", "F2rl3", "Gucy1b2", "Synj2", "Egfl7",
+             "Pcdhb12", "Pcdhb20", "Syt4", "Pcdh15", "Clec4f",
+             "Spp1", "Cd8b", "Sync", "RGD1561149", "Stac2",
+             "Clec4d", "Mir147", "Fn1", "Tinagl1", "Lrrtm4",
+             "Calml3", "Pde9a", "Akap2", "Net1", "S100a11",
+             "Klk1b3", "Clec4m", "Heyl", "Vstm4", "Sell")
+
+# Plot the marker gene heatmap
+heatmapGS <- plotMarkerHeatmap(
+  seMarker = markersGS, 
+  cutOff = "FDR <= 0.01 & Log2FC >= 1", 
+  binaryClusterRows = TRUE,
+  clusterCols = F,
+  labelMarkers = intgene,
+  transpose = FALSE,
+  invert =  FALSE,
+  nLabel = 0,
+  nPrint = 0,
+  pal = ArchRPalettes$solarExtra
+) 
+
+# Save the heatmap as a PDF file
+plotPDF(heatmapGS, name = paste0("GeneScores_Marker_Heatmap_", sample_name,"_recluster",".pdf"), width =5, height = 8, ArchRProj = proj, addDOC = FALSE)
+
+## feature_plot ----
+proj <- addImputeWeights(proj)
+
+labelMarkers <- c(
+  "Flt1", "Pecam1"#Endothelial
+)
+
+ArchR_feature_plot(proj, sample_name, embedding="UMAP",cell_type="int",labelMarkers,colorBy = "GeneScoreMatrix")
+
+## motif heatmap ----
+# getMarkerFeatures
+markersPeak <- getMarkerFeatures(
+  ArchRProj = proj,
+  useMatrix = "PeakMatrix",
+  groupBy = "Clusters",
+  bias = c("TSSEnrichment", "log10(nFrags)"),
+  testMethod = "wilcoxon"
+)
+
+# Motif Enrichments
+#Identify Motif Enrichments
+enrichMotifs <- peakAnnoEnrichment(
+  seMarker = markersPeak,
+  ArchRProj = proj,
+  peakAnnotation = "Motif",
+  cutOff = "FDR <= 0.05 & Log2FC >= 0.5"
+)
+
+# Rename motifs for more aesthetic plotting:
+rownames(enrichMotifs) <- lapply(rownames(enrichMotifs), function(x) strsplit(x, "_")[[1]][1]) %>% unlist()
+
+colnames(enrichMotifs)
+
+table(duplicated(row.names(enrichMotifs)))
+
+if(any(duplicated(row.names(enrichMotifs)))) {
+  # Generate new line name
+  newNames <- make.unique(row.names(enrichMotifs))
+  # Apply new line names
+  row.names(enrichMotifs) <- newNames
+}
+
+# Subset to clusters that have at least some enrichment
+log10pCut <- 0
+
+#ArchR Heatmap
+heatmapEM <- plotEnrichHeatmap(
+  enrichMotifs, 
+  pal = paletteContinuous(set = "comet", n = 10),
+  binaryClusterRows = F,
+  clusterCols = F,
+  n=5, 
+  cutOff=log10pCut,
+  transpose = F
+)
+
+plotPDF(heatmapEM, name=paste0("Motifs-Enriched-Heatmap-organs_",sample_name,".pdf"),width=5, height=8, ArchRProj=proj, addDOC=FALSE)
+
+# Extract the current assay data and convert it to a data frame
+data_to_save <- as.data.frame(assay(enrichMotifs, "mlog10Padj"))
+
+# Save the data as CSV file
+write.csv(data_to_save, file = "cluster_enrichMotifs_macrophages.csv", row.names = TRUE)
+
+# topGO has a quirk where it can't report p-values less than 1e-30
+library(topGO)
+library(graph)
+library(org.Mm.eg.db)
+library(stringr)
+
+expressedGenes <- markersGS@elementMetadata$name
+#Calculating GO terms on each cluster using marker genes
+intGenes <- getMarkers(markersGS, cutOff = "FDR <= 0.01 & Log2FC >= 1")
+intGenes <- data.frame(intGenes)
+
+clusters <- unique(intGenes$group_name)
+
+# Get GO enrichments (expressed genes):
+GOresults <- lapply(clusters, function(x){
+  message(sprintf("Running GO enrichments on cluster %s...", x))
+  df <- intGenes[intGenes$group_name == x,]
+  # Define custom cutoff for 'interesting genes'
+  intgenes <- df$name
+  calcTopGo(expressedGenes, interestingGenes=intgenes)
+})
+
+names(GOresults) <- paste0("cluster", clusters)
+
+# Plots of GO term enrichments:
+pdf(paste0( "cluster_marker_GO_Top5",sample_name,".pdf"), width=8, height=2.5)
+for(name in names(GOresults)){
+  goRes <- GOresults[[name]]
+  print(topGObarPlot(goRes, cmap = cmaps_BOR$comet, 
+                     nterms=4, border_color="black", 
+                     barwidth=0.85, title=name,barLimits=c(0, 5)))
+}
+dev.off()
+
+# Save a file of the results for each cluster:
+goDir <- paste0("./go_term_enrichments_",sample_name)
+dir.create(goDir, showWarnings = FALSE, recursive = TRUE)
+for(n in names(GOresults)){
+  write.table(GOresults[[n]], file=paste0(goDir, "/", n, "_go_terms.tsv"), quote=FALSE, sep='\t')
+}
