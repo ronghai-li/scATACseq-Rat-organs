@@ -1,0 +1,203 @@
+# ======== Consensus Clustering Evaluation ========
+library(ArchR)
+library(igraph)
+library(Matrix)
+library(FNN)
+library(ggplot2)
+library(scales)
+library(ComplexHeatmap)
+library(circlize)
+
+# ==== User parameters ====
+proj <- loadArchRProject(path = "/Users/lironghai/Desktop/AR/03.remerged_ATAC/proj_AfterQC/")
+useDim <- "IterativeLSI" #or Harmony
+resolutions <- seq( 0.1,1, by = 0.1) # test a series of resolutions
+N.iter <- 100                               # repeat Leiden clustering per resolution
+sampleN <- 5000                            # number of subsampled cells
+u1 <- 0.05                                 # PAC cutoff left
+u2 <- 0.95                                 # PAC cutoff right
+set.seed(2025)
+
+# ==== Helper functions
+cal_connectivity <- function(P) {
+  n <- length(P)
+  mat <- matrix(0, n, n)
+  classes <- sort(unique(P))
+  for (cls in classes) {
+    idx <- which(P == cls)          # indices of cells in this cluster
+    if (length(idx) > 1) {
+      mat[idx, idx] <- 1            # mark all (i,j) within the same cluster as 1
+    } else if (length(idx) == 1) {
+      mat[idx, idx] <- 1            # singletons → mark self
+    }
+  }
+  mat
+}
+
+cal_dispersion <- function(C) {
+  n <- nrow(C)
+  sum(4 * (C - 0.5)^2) / (n^2)
+}
+
+cal_PAC <- function(C, u1, u2) {
+  total <- length(C)
+  u1f <- sum(C < u1) / total
+  u2f <- sum(C < u2) / total
+  u2f - u1f
+}
+
+col_fun <- colorRamp2(
+  seq(0, 1, length.out = 9),
+  c("#053061", "#2166AC", "#4393C3", "#92C5DE",
+    "#F7F7F7", "#F4A582", "#D6604D", "#B2182B", "#67001F")
+)
+
+# ==== STEP 1. extract embedding & build KNN graph
+emb <- getReducedDims(proj, useDim)
+cells_use <- rownames(emb)
+
+meta <- getCellColData(proj, c("Major_celltypes", "Organs"))
+meta <- meta[match(cells_use, rownames(meta)), , drop = FALSE]
+
+cell_types <- as.character(meta$Major_celltypes)
+organ <- as.character(meta$Organs)
+
+if (nrow(emb) > sampleN) {
+  idx <- sort(sample(seq_len(nrow(emb)), sampleN))
+  emb <- emb[idx, ]
+  cell_types <- cell_types[idx]
+  organ <- organ[idx]
+}
+
+#Building KNN graph 
+knn <- get.knn(emb, k = 60, algorithm = "cover_tree")
+edges <- do.call(rbind, lapply(seq_len(nrow(knn$nn.index)), function(i) {
+  cbind(from = i, to = knn$nn.index[i, ])
+}))
+edges <- edges[edges[, 1] != edges[, 2], ]
+g <- graph_from_data_frame(edges, directed = FALSE)
+
+# ==== STEP 2. Iterate over resolutions
+results <- data.frame(resolution = numeric(),
+                      dispersion = numeric(),
+                      PAC = numeric())
+
+for (res in resolutions) {
+  message(sprintf("Running Leiden consensus at resolution = %.2f", res))
+  
+  # ---- multiple Leiden runs
+  clust.list <- list()
+  for (seed in seq_len(N.iter)) {
+    set.seed(seed)
+    clust.list[[seed]] <- cluster_leiden(
+      g,
+      objective_function = "modularity",
+      resolution = res
+    )$membership
+  }
+  
+  # ---- build consensus matrix 
+  n <- length(clust.list[[1]])
+  consensus <- matrix(0, n, n)
+  for (i in seq_len(N.iter)) {
+    consensus <- consensus + cal_connectivity(clust.list[[i]])
+  }
+  consensus <- consensus / N.iter
+
+  # ---- calculate metrics 
+  o_disp <- cal_dispersion(consensus)
+  o_PAC  <- cal_PAC(consensus, u1, u2)
+  results <- rbind(results, data.frame(resolution = res,
+                                       dispersion = o_disp,
+                                       PAC = o_PAC))
+  
+  # ---- generate consensus.png
+  hc <- hclust(as.dist(1 - consensus), method = "average")
+  ord <- hc$order
+  consensus.ord <- consensus[ord, ord]
+  cell_types.ord <- cell_types[ord]
+  organ.ord <- organ[ord] 
+  
+  # ===== Build heatmap annotations
+  ha <- HeatmapAnnotation(
+    df = data.frame(CellType = factor(cell_types.ord),
+                    Organ    = factor(organ.ord)),
+    col = list(CellType = Major_list,
+               Organ    = Organs_list),
+    annotation_legend_param = list(
+      CellType = list(title = "Cell Type"),
+      Organ    = list(title = "Organ"))
+  )
+  
+  ra <- rowAnnotation(
+    df = data.frame(CellType = factor(cell_types.ord),
+                    Organ    = factor(organ.ord)),
+    col = list(CellType = Major_list,
+               Organ    = Organs_list)
+  )
+  
+  # ===== Draw heatmap
+  ht = Heatmap(
+    consensus.ord,
+    name = "Consensus",
+    col = col_fun,
+    use_raster = TRUE,
+    cluster_rows = FALSE,  
+    cluster_columns = FALSE,
+    show_row_names = FALSE,
+    show_column_names = FALSE,
+    top_annotation = ha,
+    left_annotation = ra
+  )
+  
+  png(sprintf("consensus_heatmap_res%.2f.png", res),
+      width = 2000, height = 1800, res = 200)
+  draw(ht)
+  dev.off()
+}
+
+# ==== STEP 3. Save stability stats 
+write.table(results, "consensus_resolution_stats.txt",
+            sep = "\t", quote = FALSE, row.names = FALSE)
+
+# ==== STEP 4. Plot Dispersion & PAC curve 
+disp_min <- 0.5
+disp_max <- 1.0
+pac_min  <- 0
+pac_max  <- 0.5
+
+scalePAC <- function(x){ 
+  (x - pac_min) / (pac_max - pac_min) * (disp_max - disp_min) + disp_min 
+}
+
+invScalePAC <- function(x){
+  (x - disp_min) / (disp_max - disp_min) * (pac_max - pac_min) + pac_min
+}
+
+ggplot(results, aes(x = resolution)) +
+  geom_line(aes(y = dispersion, color = "Dispersion"), linewidth = 1.2) +
+  geom_point(aes(y = dispersion, color = "Dispersion")) +
+  
+  geom_line(aes(y = scalePAC(PAC), color = "PAC"), linewidth = 1.2) +
+  geom_point(aes(y = scalePAC(PAC), color = "PAC")) +
+  
+  scale_x_continuous(
+    breaks = seq(min(results$resolution), max(results$resolution), by = 0.1)
+  ) +
+  
+  scale_y_continuous(
+    name = "Dispersion",
+    limits = c(disp_min, disp_max),
+    sec.axis = sec_axis(~ invScalePAC(.), name = "PAC")
+  ) +
+  scale_color_manual(values = c("Dispersion" = "#E66101", "PAC" = "#5E3C99")) +
+  theme_bw(base_size = 14) +
+  ggtitle("Consensus Clustering Stability Across Resolutions") +
+  theme(
+    axis.title.y.right = element_text(color = "#5E3C99"),
+    axis.title.y.left = element_text(color = "#E66101"),
+    panel.grid = element_line(color = "grey85"),
+    legend.title = element_blank()
+  )
+
+ggsave("consensus_dispersion_PAC_curve.pdf", width = 6, height = 3, dpi = 300)
