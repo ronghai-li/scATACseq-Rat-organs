@@ -1,0 +1,72 @@
+#Unsupervised hierarchical clustering analysis
+suppressPackageStartupMessages({
+  library(ArchR)
+  library(data.table)
+  library(pvclust)
+  library(parallel)
+  library(ggplot2)
+})
+
+# 01.Exporting PeakMatrix grouped by cell types
+#load data
+proj <- loadArchRProject(path to your ArchR project)
+
+se_peak <- getGroupSE(
+  ArchRProj = proj,
+  useMatrix = "PeakMatrix",
+  scaleTo   = 1e4,
+  groupBy   = "Celltypes"
+)
+
+peak_mat <- assay(se_peak)
+peak_names <- paste0(se_peak@elementMetadata$seqnames, ":", se_peak@elementMetadata$start, "-", se_peak@elementMetadata$end)
+
+dt <- data.table(feature = peak_names, as.matrix(peak_mat))
+
+feat_names <- dt[[1]]
+dt[[1]] <- NULL
+
+mat <- as.matrix(dt)
+mode(mat) <- "numeric"
+rownames(mat) <- feat_names
+
+head(mat)
+
+#feature_filter
+# calculate CV
+row_means <- rowMeans(mat, na.rm = TRUE)
+valid <- row_means > 0
+
+cv <- rep(NA_real_, length(row_means))
+cv[valid] <- apply(mat[valid, , drop = FALSE], 1, sd, na.rm = TRUE) / row_means[valid]
+
+q <- quantile(cv[valid], probs = 0.5, na.rm = TRUE)
+sel <- which(!is.na(cv) & cv >= q)
+
+mat_filt <- mat[sel, , drop = FALSE]
+
+#Standardization
+mat_log <- log2(mat_filt + 1)
+mat_scaled <- t(scale(t(mat_log)))
+mat_scaled[is.na(mat_scaled)] <- 0
+
+#pvclust
+dist_cor <- function(x) {
+  as.dist(1 - cor(x, method = "pearson"))
+}
+
+set.seed(1234)
+
+pv <- pvclust(
+  mat_scaled,
+  method.dist   = dist_cor,
+  method.hclust = "ward.D2",
+  nboot         = 1000
+)
+
+save(pv, file = paste0("Top_50_pvclust_new.RData"))
+
+pdf(paste0("./Top_50_pvclust_dendrogram.pdf"), width = 20, height = 15)
+plot(pv, main = paste0("Hierarchical clustering (", "peak", ")"))
+pvrect(pv, alpha = 0.95)
+dev.off()
