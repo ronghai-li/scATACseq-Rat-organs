@@ -1,0 +1,75 @@
+###prepare the motif dataset ----
+
+#JASPAR
+# Load required packages
+library(universalmotif)
+library(TFBSTools)
+library(BSgenome.Rnorvegicus.UCSC.rn6)
+
+# 1. Read JASPAR-style motif file into a list of universalmotif objects
+um_list <- read_jaspar("/Users/lironghai/Desktop/AR/10.Revised/JASPAR2024_combined_matrices_jaspar.txt")
+
+# 2. Convert each motif from PCM to PPM (probability matrix), add pseudocount to avoid zeros
+um_ppm <- lapply(um_list, function(m) convert_type(m, "PPM", pseudocount = 0.8))
+
+# 3. Convert to PFMatrix objects (TFBSTools)
+pf_list <- convert_motifs(um_ppm, class = "TFBSTools-PFMatrix")
+pfm <- do.call(PFMatrixList, pf_list)
+
+# 4. Convert each PFMatrix to PWMatrix using log2 probability ratio and uniform background
+pwm_list <- lapply(as.list(pfm), function(m)
+  toPWM(m, type = "log2probratio", pseudocounts = 0.8, bg = c(A=0.25, C=0.25, G=0.25, T=0.25))
+)
+
+# 5. Assign valid unique names to motifs (required by ArchR / downstream tools)
+motif_names <- sapply(pwm_list, function(m) {
+  n <- name(m)
+  if (is.null(n) || n == "" || is.na(n)) n <- ID(m)
+  if (is.null(n) || n == "" || is.na(n)) n <- "motif"
+  n
+})
+
+for (i in seq_along(pwm_list)) {
+  pwm_list[[i]]@name <- motif_names[i]
+  pwm_list[[i]]@ID <- motif_names[i]
+}
+
+names(pwm_list) <- motif_names
+
+# 6. Assemble final PWMatrixList object
+pwm <- do.call(PWMatrixList, pwm_list)
+
+# 7. Save for reuse
+saveRDS(pwm, "JASPAR2024_Mus_musculus_PWMatrixList.rds")
+
+# extract motif & ID 
+motif_ids <- sapply(pfm, ID)
+motif_tf_names <- sub(".*\\.", "", motif_ids)
+motif_map <- data.frame(
+  ID = sapply(pfm, name),  
+  TF = motif_tf_names,        
+  stringsAsFactors = FALSE
+)
+
+# Add motif information
+proj <- addMotifAnnotations(proj, 
+                            annoName="Motif_JASPAR2024", 
+                            motifPWMs = pwm,
+                            force=TRUE)
+
+library(chromVARmotifs)
+
+# Add background peaks
+proj <- addBgdPeaks(proj, force = TRUE)
+
+# Add deviations matrix
+proj <- addDeviationsMatrix(
+  ArchRProj = proj, 
+  matrixName = "Motif_JASPAR2024_Matrix",
+  peakAnnotation = "Motif_JASPAR2024",
+  force = TRUE
+)
+
+getAvailableMatrices(proj)
+
+saveArchRProject(proj)
